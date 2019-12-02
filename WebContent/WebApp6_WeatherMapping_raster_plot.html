@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Weather Mapping</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.3.3/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.3.3/dist/leaflet.js"></script>
+<script src="https://code.jquery.com/jquery-3.3.1.js"></script>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/spin.js/2.3.2/spin.min.js'></script>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/Leaflet.Spin/1.1.0/leaflet.spin.min.js'></script>
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+
+</head>
+<body>  
+ <div id="mapid" style="width: 100%; height: 600px;"></div>
+ 
+ <div id="chartTimeSeries" style="width: 100%; height: 300px;"></div>
+ <div id="chartScatterPlot" style="width: 100%; height: 300px;"></div>
+ 
+</body>
+
+<script type="text/javascript">
+
+//BEGIN BOILERPLATE
+
+var mapOpt = {
+	attributionControl: true,
+	zoomControl: true,
+	};
+var map = L.map('mapid', mapOpt).setView([38,-99],3);
+var drawnItems = L.featureGroup().addTo(map);
+
+var mbAttr = 'Map data &copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors, ' +
+			'<a href="https://creativecommons.org/licenses/by-sa/2.0/">CC-BY-SA</a>, ' +
+			'Imagery © <a href="https://www.mapbox.com/">Mapbox</a>';
+			
+var mbURL = 'https://api.tiles.mapbox.com/v4/{id}/{z}/{x}/{y}.png?access_token=pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw';
+var lyrMbStreet = L.tileLayer(mbURL,{id: 'mapbox.streets', attribution: mbAttr}).addTo(map);
+var googleMap = L.tileLayer('http://www.google.cn/maps/vt?lyrs=s@189&gl=cn&x={x}&y={y}&z={z}', {attribution: 'google'});
+
+// owm = "Open Weather Mapping"
+var owm_api_id="f52378e8a46690c58b6dc22a6f941745";
+var owm_prec = L.tileLayer('https://tile.openweathermap.org/map/precipitation_new/{z}/{x}/{y}.png?appid='+owm_api_id, {attribution: 'OpenWeatherMap'});
+var owm_cloud = L.tileLayer('https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid='+owm_api_id, {attribution: 'OpenWeatherMap'});
+var owm_temp = L.tileLayer('https://tile.openweathermap.org/map/temp_new/{z}/{x}/{y}.png?appid='+owm_api_id, {attribution: 'OpenWeatherMap'});
+var owm_windspeed = L.tileLayer('https://tile.openweathermap.org/map/wind_new/{z}/{x}/{y}.png?appid='+owm_api_id, {attribution: 'OpenWeatherMap'});
+var owm_pressure = L.tileLayer('https://tile.openweathermap.org/map/pressure_new/{z}/{x}/{y}.png?appid='+owm_api_id, {attribution: 'OpenWeatherMap'});
+
+var layercontrol = L.control.layers();
+layercontrol.addBaseLayer(lyrMbStreet,"Streets");
+layercontrol.addBaseLayer(googleMap,"Google Imagery");
+layercontrol.addOverlay(owm_prec,"Precipitation");
+layercontrol.addOverlay(owm_temp,"Temperature");
+layercontrol.addOverlay(owm_windspeed,"Wind speed");
+layercontrol.addOverlay(owm_pressure,"Level pressure");
+layercontrol.addOverlay(owm_cloud,"Clouds");
+
+layercontrol.options.collapsed=false;//keep the layer control panel open
+layercontrol.addTo(map);
+
+map.on("click",function(e){
+   submitQuery5day(e.latlng.lat,e.latlng.lng);
+});
+
+function submitQuery5day(lat,lon){  // declare function - pass in coordinates as parameters
+     $.ajax({ 	// begin AJAX component. Start by constructing a GET request w/ various properties...
+        url: "https://api.openweathermap.org/data/2.5/forecast/?lat="+lat+"&lon="+lon+"&appid="+owm_api_id,  // address of request
+        dataType: 'json', //note that the response data style will be JSON object. 
+        type: 'GET',  // declares request type (e.g. GET, POST, etc.)
+        beforeSend: function() {  // async - triggered before the request is sent
+            //show spinner
+        	map.spin(true);  // dispay spinner 
+        },  // end `beforeSend` section
+        complete: function() {  // async - triggered on success or failure callback
+            //hide  spinner
+        	map.spin(false);  // hide spinner as data has been retrieved
+        },  // end `complete` section
+        success: function(response) { //reponse is a json object
+        	drawTimeSeries(response);  // calls function `draw`TimeSeries` w/ response as parameter
+        	drawScatterPlot(response);  // // calls function `drawScatterPlot` w/ response as parameter
+        }  // end `success` section
+     });  // end async (AJAX) call
+}  // end function `submitQuery5day`
+
+function drawTimeSeries(data){  // begin function `drawTimeSeries` - param `data`: 
+	console.info(data);
+	var time =[];
+	var temp =[];
+	for(var i =0;i<data.list.length;i++){
+		var item = data.list[i];
+		time.push(item.dt_txt);
+		temp.push(item.main.temp);
+	}
+   	var tempLine = {
+   			  x: time, 
+   			  y: temp, 
+   			  type: 'scatter'
+   			};
+   			
+    var series = [tempLine];
+    var layout = {
+    		  title:'<b>5 day / 3 hour weather forecast for '+ data.city.name+"</b>",
+    		  xaxis: {
+    			    title: ''
+    			  },
+    		  yaxis: {
+    			    title: 'Temperature in Kelvin'
+    			  }
+    		};
+       
+   	Plotly.newPlot('chartTimeSeries', series,layout);
+}
+
+function drawScatterPlot(data){
+	//console.info(data);
+	var x =[];
+	var y =[];
+	for(var i =0;i<data.list.length;i++){
+		var item = data.list[i];
+		x.push(item.main.humidity);
+		y.push(item.main.temp);
+	}
+   	var trace = {
+   			  x: x, 
+   			  y: y, 
+   			  type: 'scatter',
+   			  mode: 'markers',
+   			};
+   			
+       var series = [trace];
+       var layout = {
+       		  title:'<b>Scatter plot for humidity and temperature for '+ data.city.name+"</b>",
+       		  xaxis: {
+       			    title: 'Humidity'
+       			  },
+       		  yaxis: {
+       			    title: 'Temperature in Kelvin'
+       			  }
+       		};
+       
+   	Plotly.newPlot('chartScatterPlot', series,layout);
+}
+
+ 
+</script>
+
+</html>
+

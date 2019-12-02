@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Homework 5</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.3.3/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.3.3/dist/leaflet.js"></script>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js'></script>
+<script src="https://code.jquery.com/jquery-3.3.1.js"></script>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/jquery-csv/0.8.9/jquery.csv.min.js'></script>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/spin.js/2.3.2/spin.min.js'></script>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/Leaflet.Spin/1.1.0/leaflet.spin.min.js'></script>
+<script src='https://cdnjs.cloudflare.com/ajax/libs/leaflet-polylinedecorator/1.1.0/leaflet.polylineDecorator.js'></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.css" />
+<script src='https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.js'></script>
+
+</head>
+<body>
+<div id="mapid" style="width: 100%; height: 600px;"></div>
+<br>
+<br>
+
+
+<script type="text/javascript">
+// n.b. assuming its ok to not comment the html...
+
+var map = L.map('mapid').setView([40.7128,-74.0060], 10);  // initiate map object
+var streetLayerUrl = "https://api.tiles.mapbox.com/v4/{id}/{z}/{x}/{y}.png?"+  
+"access_token=pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw";  // initiate streetLayer string
+var streetLayer = L.tileLayer(streetLayerUrl,{id: 'mapbox.streets', attribution: "MapBox"});  // initiate streetLayer
+map.addLayer(streetLayer); //make this layer show by default
+
+var googleMapLayer = L.tileLayer('http://www.google.cn/maps/vt?lyrs=s@189&gl=cn&x={x}&y={y}&z={z}', {
+attribution: 'google'
+});  // add Google Map Layer
+
+var layerControl = L.control.layers(null,null,{collapsed:false}).addTo(map); // initiate layer control (UI box)
+layerControl.addBaseLayer(streetLayer,"MapBox");  // add MapBox layer to layer controller
+layerControl.addBaseLayer(googleMapLayer,"GoogleMap");  // add GoogleMap layer to layer controller
+
+var trajectoryLayer, arrowLayer, backupData;  // initiate varibles 
+
+function style(feature) {
+    return {
+	    radius: 3,
+	    fillColor:"red",
+	    color: "blue",
+	    weight: 0.1,
+	    opacity: 0.8,
+	    fillOpacity: 0.5  
+	}; // list of style parameters
+} // end function `style` - returns style for a feature
+
+$.ajax({ 	
+    url: "NYC_taxi_10_min.csv",  // get CSV from same directory
+    dataType: 'text',   // CSV is dataType `text`
+    type: 'GET',  // ...
+    beforeSend: function() {  // loading
+        //show spinner
+    	map.spin(true); // spinner active will loading map
+    },
+    complete: function() {  // done loading
+        //hide  spinner
+    	map.spin(false);  // spinner hidden when no longer needed
+    },
+    success: function(response) {  // ajax GET successful
+    	fetchedData = $.csv.toArrays(response);  //load data into array by row
+    	fetchedData.shift();  // removes first element from array (row headers)
+    	//make a copy of the data fetched from the server
+    	newFetchedData = checkForValidity(fetchedData);  // calls function `checkForValidity` to filter bad rows
+        backupData = newFetchedData.slice(0);  // copies array
+    	drawLayers(newFetchedData);  // calls function `drawLayer`
+
+    }  // end success block
+}); // end ajax block
+ 
+/*
+ * FUNCTION `convertToGeoJson`
+ *		:param: csv - type array
+ *	Builds a feature collection based off the csv data. Includes most properties from CSV w/ each feature. 
+ */
+function convertToGeoJson(csv){
+ 	//console.info(json);
+ 	if(csv.length == 0){  // check to make sure array param is not empty, return empty array if it is
+ 		return []; //json == []
+ 	} 
+ 	var geojson = {
+ 			  type: "FeatureCollection",  // set type to feature collection
+ 			  features: [],  // make empty
+ 			};  // initialize empty feature collection
+ 	
+ 	for (i = 0; i < csv.length; i++) {  // loop over length of csv parameter
+ 		  var row = csv[i];  // load row into variable
+ 		  //console.info(row[4]);
+ 		  geojson.features.push({  // push property JSON information
+ 		    "type": "Feature",  // type
+ 		    "geometry": {	// set geometry properties
+ 		      "type": "Point",
+ 		      "coordinates": [row[3], row[4]] // pick up point
+ 		    },
+ 		    "properties": {
+ 		      "pickupdate_time": timeToDate(row[0]), // both time AND date of pickup
+ 		      "pass_count":row[1],  // number of passenger
+ 		      "distance": row[2],  // distance of trip
+ 		      "dropoff_lon": row[5],  // dropoff longitude
+ 		      "dropoff_lat": row[6],  // dropoff latitude
+ 		      "fare_amount": row[7],  // fare principal
+ 		      "tip_amount": row[8],  // amount tipped 
+ 		      "tolls_amount": row[9]  // tolls incurred on trip
+ 		      
+ 		    }  // end properties
+ 		  });  // in geoson.features
+ 		}  // end for loop
+ 	
+ 	console.info(geojson);//for debugging
+ 	return geojson;  // return feature collection
+ }
+ 
+ 
+var taxiLayer;  // initiate variable for use in function
+var pathLayer = L.featureGroup();  // initiate pathLayer feature group for use in function
+var decLayer = L.featureGroup();	// initiate decLayer feature group for use in function
+
+
+/*
+ * FUNCTION `drawLayers`
+ * 		:para: data - type array - cleaned data array - elements represent rows 
+ */
+function drawLayers(data){  // begin function
+
+    var geojson = convertToGeoJson(data);  // calls function `convertToGeoJson` to parse CSV data
+    taxiLayer = L.geoJSON(geojson,{  // initialize leaflet geoJSON object...
+    	onEachFeature: onEachFeatureFunc,  // ...calls `onEachFeature`...
+        pointToLayer: function (feature, latlng) {return L.circleMarker(latlng);},
+	    style:style  // ...various style parameters...
+    }).addTo(map);  // ...and add it to map...
+    layerControl.addOverlay(taxiLayer,"Pickup location");  // ...as well as layer controller
+    
+    var pathCoords = data.map(function (p) {return [[p[4], p[3]],[p[6], p[5]]];}); // p[3]-p[6] are columns start and stop points
+   	//console.info(pathCoords);
+   	for(var i=0; i<pathCoords.length; i++) {  // begin for loop over length of pathCoords
+   		
+   		var taxiPath = new L.polyline(pathCoords[i],{weight: 0.5,color:'blue'});  // create polyline representing taxi path
+   		pathLayer.addLayer(taxiPath);  // add this to pathLayer
+   		
+   		//create decorator arrow
+   		var arrow = L.polylineDecorator(taxiPath, {  // decLayer uses taxiPath
+     	     patterns: [
+     	    	 {offset: '100%', repeat: 0, symbol: L.Symbol.arrowHead({pixelSize: 8, polygon: false, pathOptions: {weight: 0.5,stroke: true, color:"blue"}})}
+     	     ]
+     	    }); 
+   		decLayer.addLayer(arrow); // add decorator layer to map as well
+   		
+   	 }
+     	
+     map.addLayer(pathLayer);  // add pathLayer to map
+     layerControl.addOverlay(pathLayer,"Taxi Path");  // add Taxi Path to layer controller
+        
+     map.addLayer(decLayer);  // add decorator layer to map
+     layerControl.addOverlay(decLayer,"Taxi Direction");   // add decorator layer to layer controller 	
+}
+
+
+/*
+ * FUNCTION `checkForValidity`
+ *		:param: data - type=array
+ 	Validates data by making sure the latitude and longitude are not 0
+ */
+function checkForValidity (data)
+{
+  var cleanData = [];  // initiates array for cleaned data
+  for (i = 0; i < data.length; i++) {  // loop over length of data parameter
+	  var row = data[i]; 	 		   // initate row variable with csv row from data array
+	  if (row[5] != 0 && row[6] != 0){  // conditional - validates that both the lat and long are not 0
+		     cleanData.push(row);  // add row to clean data
+	  }	    			 	    		 	    		 	    		 
+  }
+  return cleanData; 	 // return cleaned data
+}
+
+/*
+ * FUNCTION `onEachFeatureFunc`
+ * 		:param: feature - type feature - feature in taxiLayer
+ *		:param: layer - the layer
+ * Called on each element in the feature group (incl. geoJSON object).
+ */
+function onEachFeatureFunc(feature, layer) {
+	if (feature.properties) {  // if the feature has properties associated with it...
+	   //console.info(feature.properties);
+	   layer.bindPopup(convertPropertiesToHMTL("Information",feature.properties));   // ...bind a popup containing that information
+	}
+}
+
+
+/*
+ * FUNCTION `convertPropertiesToHTML`
+ *		:param: title
+ *		:param: properties
+ */
+function convertPropertiesToHMTL(title,properties){
+	var content = [];  // initialize empty array
+    for (var key in properties) {  // loop over each key in list of pairs
+      content.push("<b>"+key + "</b>:" + properties[key]);  // build an HTML string and push it to content variable
+    }
+    return "<h3>"+title+"</h3>"+content.join("<br>");  // build full string using content variable and a title
+}
+
+/*
+ * FUNCTION `timeToDate`
+ * 		:param: time - 
+ */
+function timeToDate(time){
+	var myDate = new Date(time);  // creates date object using time
+	return myDate.toString();  // returns date as string
+}
+	     
+</script>
+
+</body>
+</html>
