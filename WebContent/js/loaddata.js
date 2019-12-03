@@ -43,10 +43,18 @@ function launchAlertData() {
         console.log(alaunch.location.pads[0].latitude);
         for (var i=0; i<data.count; i++) {
             var loc = launches[i].location.pads[0];
+            var agency = launches[i].lsp;
             var lat = loc.latitude;
             var lon = loc.longitude;
             
             var marker = new WE.marker([lat,lon]).addTo(earth);
+            marker.bindPopup("<img id=\"rocketimg\" src=" + launches[i].rocket.imageURL + ">" + 
+            		"<table>" +
+                    "<tr><th>Launch</th><td>" + launches[i].name + "</td></tr>" +
+                    "<tr><th>Agency</th><td>" + agency.abbrev + "</td></tr>" +
+                    "<tr><th>countryCode</th><td>" + agency.countryCode + "</td></tr>" +
+                    
+            		"</table>")
         }  // end for
     })
     .catch(function() {
