@@ -1,0 +1,28 @@
+html, body{
+			padding: 0; 
+			margin: 0;
+}
+
+#earth_div {
+			top: 0;
+			right: 0;
+			bottom: 0;
+			left: 0;
+			height: 500px;
+			margin-top: 24px;
+			background-color: #000;
+}
+			
+#ll_button {
+			margin-top:0px;
+			margin-left: 43%;
+}
+
+#header_div{
+			margin-top: 0px;
+			background-color: #d3d3d3;
+}
+
+#header_p{
+			margin-left:100px;
+}
